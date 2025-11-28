@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h2>All TODOs</h2>
+
+<ul>
+    {% for todo in todos %}
+        <li>
+            <strong>{{ todo.title }}</strong>
+            {% if todo.is_done %}✔️{% endif %}
+            <br>
+            Due: {{ todo.due_date }}<br>
+            <a href="{% url 'edit' todo.id %}">Edit</a>
+            <a href="{% url 'delete' todo.id %}">Delete</a>
+            {% if not todo.is_done %}
+                <a href="{% url 'done' todo.id %}">Mark done</a>
+            {% endif %}
+        </li>
+    {% endfor %}
+</ul>
+
+{% endblock %}

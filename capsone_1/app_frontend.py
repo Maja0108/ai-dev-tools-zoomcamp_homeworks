@@ -7,9 +7,14 @@ import requests
 API_URL = "http://127.0.0.1:8000/ask"  # FastAPI backend URL
 
 st.set_page_config(page_title="Mini QA", page_icon="🤖", layout="centered")
-st.title("🤖 Mini QA Frontend")
+st.title("🤖 Mini QA Frontend with docs")
 st.caption("Question-answer based on the choosen model")
 
+use_local = st.radio(
+    "Choose model:",
+    ("Local", "OpenAI")
+)
+top_k = st.slider("Max how many documnet is relevant ?", 1, 5, 3)
 #Chat input
 question = st.text_input("Question:", "")
 context = st.text_area("Optional context, Enter new line, one line = one item", "")
@@ -19,7 +24,8 @@ if st.button("Send") and question:
 
     payload = {
         "question": question,
-        "context": context_list
+        "context": context_list,
+        "top_k": top_k
     }
 
     try:

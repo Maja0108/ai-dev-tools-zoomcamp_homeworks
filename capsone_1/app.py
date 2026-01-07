@@ -2,29 +2,14 @@
 
 from fastapi import FastAPI, Query
 from typing import List
+import requests, zipfile, io
 
-# ---- Dokumentumok (példa) ----
-DOCUMENTS = [
-    {"title": "Application System Set", "content": "Ez az alkalmazás rendszerbeállítási leírás..."},
-    {"title": "Data Pipeline", "content": "Adatfeldolgozás lépései Pythonban..."},
-    {"title": "Machine Learning", "content": "ML modellek építése, predikciók..."}
-]
-
-def search_docs(query: str, docs=DOCUMENTS, top_k=3):
-    """Egyszerű full-text keresés a dokumentumok között"""
-    query_lower = query.lower()
-    matches = []
-    for doc in docs:
-        if query_lower in doc["title"].lower() or query_lower in doc["content"].lower():
-            matches.append(doc)
-    return matches[:top_k]
-
-# ---- Model abstraction ----
+# --- Model abstraction ---
 class BaseModelInterface:
     def answer(self, question: str, context: List[str]) -> str:
         raise NotImplementedError
 
-# ---- OpenAI implementation ----
+# --- OpenAI ---
 try:
     import openai
     OPENAI_AVAILABLE = True
@@ -34,60 +19,72 @@ except ImportError:
 class OpenAIModel(BaseModelInterface):
     def __init__(self, api_key: str):
         if not OPENAI_AVAILABLE:
-            raise ImportError("OpenAI package is not installed")
+            raise ImportError("Openai package is not installed")
         openai.api_key = api_key
 
     def answer(self, question: str, context: List[str]) -> str:
         prompt = "Use only the following context to answer the question:\n"
         prompt += "\n".join(context)
         prompt += f"\n\nQuestion: {question}\nAnswer:"
-
         response = openai.Completion.create(
             model="text-davinci-003",
             prompt=prompt,
-            max_tokens=200
+            max_tokens=300
         )
         return response.choices[0].text.strip()
 
-# ---- Local model ----
+# --- Local model ---
 class LocalModel(BaseModelInterface):
     def answer(self, question: str, context: List[str]) -> str:
         snippet = context[0] if context else "No context available"
         return f"[LOCAL MODEL] Question: {question}\nContext snippet: {snippet}"
 
-# ---- Model selection ----
-USE_LOCAL = True  # True = Local, False = OpenAI
-
+# --- Model választás ---
+USE_LOCAL = True
 if USE_LOCAL:
     model = LocalModel()
 else:
     model = OpenAIModel(api_key="YOUR_OPENAI_KEY")
 
-# ---- FastAPI setup ----
-app = FastAPI(title="Selectable Model QA API with Docs")
+# --- Dokumentum betöltés GitHub-ról ---
+def load_github_docs(owner: str, repo: str, branch: str = "main", file_exts: list = [".md", ".mdx"]):
+    url = f"https://codeload.github.com/{owner}/{repo}/zip/refs/heads/{branch}"
+    resp = requests.get(url)
+    resp.raise_for_status()
+    docs = []
+
+    with zipfile.ZipFile(io.BytesIO(resp.content)) as zf:
+        for f in zf.infolist():
+            if any(f.filename.lower().endswith(ext) for ext in file_exts):
+                with zf.open(f) as file:
+                    try:
+                        content = file.read().decode("utf-8", errors="ignore")
+                        docs.append({"filename": f.filename, "content": content})
+                    except:
+                        continue
+    return docs
+
+# --- FastAPI setup ---
+app = FastAPI(title="GitHub Docs QA API")
+DOCUMENTS = []
+
+@app.get("/load_docs")
+def load_docs(owner: str = Query(...), repo: str = Query(...), branch: str = Query("main")):
+    global DOCUMENTS
+    DOCUMENTS = load_github_docs(owner, repo, branch)
+    return {"message": f"Loaded {len(DOCUMENTS)} documents from {owner}/{repo} ({branch} branch)"}
+
 
 @app.get("/ask")
-def ask(
-    question: str = Query(..., description="Question we want to ask"),
-    top_k: int = Query(3, description="Number of documents to consider")
-):
-    """
-    Question-answer endpoint.
-    - Performs document search
-    - Passes top-k documents as context to selected model
-    """
-    # 1️⃣ Keresés a dokumentumok között
-    matched_docs = search_docs(question, top_k=top_k)
-    context_texts = [doc["content"] for doc in matched_docs]
+def ask(question: str = Query(...)):
+    if not DOCUMENTS:
+        return {"error": "No documents loaded yet!"}
 
-    # 2️⃣ Modell válasz
-    answer = model.answer(question, context_texts)
+    # Egyszerű keresés: szavak előfordulása
+    context_snippets = []
+    for doc in DOCUMENTS:
+        if any(word.lower() in doc["content"].lower() for word in question.split()):
+            context_snippets.append(doc["content"])
 
-    # 3️⃣ Források visszaadása
-    sources = [doc["title"] for doc in matched_docs]
-
-    return {
-        "question": question,
-        "answer": answer,
-        "sources": sources
-    }
+    answer = model.answer(question, context_snippets[:5])
+    return {"question": question, "answer": answer, "sources": [d["filename"] for d in DOCUMENTS[:5]]}

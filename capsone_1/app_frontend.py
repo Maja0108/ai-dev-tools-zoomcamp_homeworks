@@ -1,39 +1,35 @@
-# file: app_frontend.py
+# file: frontend.py
 
 import streamlit as st
 import requests
 
-#Configuration
-API_URL = "http://127.0.0.1:8000/ask"  # FastAPI backend URL
+BACKEND_URL = "http://127.0.0.1:8000"
 
-st.set_page_config(page_title="Mini QA", page_icon="🤖", layout="centered")
-st.title("🤖 Mini QA Frontend with docs")
-st.caption("Question-answer based on the choosen model")
+st.title("📚 GitHub Dokumentum Kérdező")
 
-use_local = st.radio(
-    "Choose model:",
-    ("Local", "OpenAI")
-)
-top_k = st.slider("Max how many documnet is relevant ?", 1, 5, 3)
-#Chat input
-question = st.text_input("Question:", "")
-context = st.text_area("Optional context, Enter new line, one line = one item", "")
+# --- GitHub repo betöltés ---
+with st.expander("📂 GitHub repo betöltése"):
+    owner = st.text_input("Repo tulajdonos:", "DataTalksClub")
+    repo = st.text_input("Repo név:", "faq")
+    branch = st.text_input("Branch (default: main):", "main")
+    if st.button("📥 Dokumentumok betöltése"):
+        resp = requests.get(f"{BACKEND_URL}/load_docs", params={"owner": owner, "repo": repo, "branch": branch})
+        st.success(resp.json().get("message"))
 
-if st.button("Send") and question:
-    context_list = [line.strip() for line in context.splitlines() if line.strip()]
+# --- Kérdés bekérése ---
+question = st.text_input("Írd be a kérdésed:")
 
-    payload = {
-        "question": question,
-        "context": context_list,
-        "top_k": top_k
-    }
-
-    try:
-        response = requests.get(API_URL, params=payload, timeout=10)
-        if response.status_code == 200:
-            data = response.json()
-            st.markdown(f"**Answer:** {data['answer']}")
+if st.button("❓ Kérdés küldése"):
+    if not question:
+        st.warning("Adj meg egy kérdést!")
+    else:
+        resp = requests.get(f"{BACKEND_URL}/ask", params={"question": question})
+        data = resp.json()
+        if "error" in data:
+            st.error(data["error"])
         else:
-            st.error(f"Backend error: {response.status_code} {response.text}")
-    except Exception as e:
-        st.error(f"Error in the request: {e}")
+            st.subheader("📄 Válasz a modellből")
+            st.write(data["answer"])
+            st.subheader("📚 Forrás dokumentumok")
+            for src in data["sources"]:
+                st.write(f"- {src}")
